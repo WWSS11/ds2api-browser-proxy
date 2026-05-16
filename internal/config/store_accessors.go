@@ -145,11 +145,44 @@ func (s *Store) AutoDeleteSessions() bool {
 	return s.AutoDeleteMode() != "none"
 }
 
+func (s *Store) SessionReuseEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.SessionReuse.Enabled == nil {
+		return false
+	}
+	return *s.cfg.SessionReuse.Enabled
+}
+
+func (s *Store) SessionReuseTTLSeconds() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.SessionReuse.TTLSeconds > 0 {
+		return s.cfg.SessionReuse.TTLSeconds
+	}
+	return 1800
+}
+
+func (s *Store) SessionReuseMinIntervalMs() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.SessionReuse.MinIntervalMs
+}
+
+func (s *Store) SessionReuseMaxMessages() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.SessionReuse.MaxMessages > 0 {
+		return s.cfg.SessionReuse.MaxMessages
+	}
+	return 30
+}
+
 func (s *Store) CurrentInputFileEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.cfg.CurrentInputFile.Enabled == nil {
-		return true
+		return false
 	}
 	return *s.cfg.CurrentInputFile.Enabled
 }
@@ -164,7 +197,7 @@ func (s *Store) ThinkingInjectionEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.cfg.ThinkingInjection.Enabled == nil {
-		return true
+		return false
 	}
 	return *s.cfg.ThinkingInjection.Enabled
 }
@@ -173,4 +206,19 @@ func (s *Store) ThinkingInjectionPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return strings.TrimSpace(s.cfg.ThinkingInjection.Prompt)
+}
+
+func (s *Store) BrowserProxyEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.BrowserProxy.Enabled == nil {
+		return false
+	}
+	return *s.cfg.BrowserProxy.Enabled
+}
+
+func (s *Store) BrowserProxy() BrowserProxyConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg.BrowserProxy
 }

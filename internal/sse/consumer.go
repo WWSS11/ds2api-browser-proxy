@@ -15,6 +15,7 @@ type CollectResult struct {
 	Thinking              string
 	ToolDetectionThinking string
 	ContentFilter         bool
+	ErrorMessage          string
 	CitationLinks         map[int]string
 	ResponseMessageID     int
 }
@@ -33,6 +34,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 	thinking := strings.Builder{}
 	toolDetectionThinking := strings.Builder{}
 	contentFilter := false
+	errorMessage := ""
 	stopped := false
 	collector := newCitationLinkCollector()
 	responseMessageID := 0
@@ -61,6 +63,11 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 			if result.ContentFilter {
 				contentFilter = true
 			}
+			if result.ErrorMessage != "" {
+				errorMessage = result.ErrorMessage
+				stopped = true
+				return true
+			}
 			// Keep scanning to collect late-arriving citation metadata lines
 			// that can appear after response/status=FINISHED, but stop as soon
 			// as [DONE] arrives.
@@ -87,6 +94,7 @@ func CollectStream(resp *http.Response, thinkingEnabled bool, closeBody bool) Co
 		Thinking:              thinking.String(),
 		ToolDetectionThinking: toolDetectionThinking.String(),
 		ContentFilter:         contentFilter,
+		ErrorMessage:          errorMessage,
 		CitationLinks:         collector.build(),
 		ResponseMessageID:     responseMessageID,
 	}

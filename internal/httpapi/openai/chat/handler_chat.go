@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"ds2api/internal/assistantturn"
 	"ds2api/internal/auth"
+	"ds2api/internal/browserproxy"
 	"ds2api/internal/completionruntime"
 	"ds2api/internal/config"
 	dsprotocol "ds2api/internal/deepseek/protocol"
@@ -37,21 +39,44 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := h.Auth.Determine(r)
-	if err != nil {
-		status := http.StatusUnauthorized
-		detail := err.Error()
-		if err == auth.ErrNoAccount {
-			status = http.StatusTooManyRequests
-		}
-		writeOpenAIError(w, status, detail)
-		return
-	}
+	var a *auth.RequestAuth
 	var sessionID string
-	defer func() {
-		h.autoDeleteRemoteSession(r.Context(), a, sessionID)
-		h.Auth.Release(a)
-	}()
+	var reusedSession bool
+	if h.Store.BrowserProxyEnabled() {
+		config.Logger.Info("[browser_proxy] using simplified auth (browser-only mode)")
+		authHeader := r.Header.Get("Authorization")
+		callerKey := ""
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			callerKey = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+		if callerKey == "" {
+			writeOpenAIError(w, http.StatusUnauthorized, "missing Authorization header")
+			return
+		}
+		a = &auth.RequestAuth{
+			CallerID:  callerKey,
+			AccountID: "browser-proxy",
+		}
+		defer func() {}()
+	} else {
+		var err error
+		a, err = h.Auth.Determine(r)
+		if err != nil {
+			status := http.StatusUnauthorized
+			detail := err.Error()
+			if err == auth.ErrNoAccount {
+				status = http.StatusTooManyRequests
+			}
+			writeOpenAIError(w, status, detail)
+			return
+		}
+		defer func() {
+			if !reusedSession {
+				h.autoDeleteRemoteSession(r.Context(), a, sessionID)
+			}
+			h.Auth.Release(a)
+		}()
+	}
 
 	r = r.WithContext(auth.WithAuth(r.Context(), a))
 
@@ -65,13 +90,32 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if msgs, ok := req["messages"].([]any); ok && len(msgs) > 0 {
+		if m, ok := msgs[len(msgs)-1].(map[string]any); ok {
+			if c, ok := m["content"].(string); ok {
+				config.Logger.Info("[chat_handler] raw content check",
+					"content_len", len(c),
+					"content_preview", c[:min(50, len(c))],
+					"content_bytes", fmt.Sprintf("%x", []byte(c[:min(20, len(c))])),
+				)
+			}
+		}
+	}
 	if err := h.preprocessInlineFileInputs(r.Context(), a, req); err != nil {
 		writeOpenAIInlineFileError(w, err)
 		return
 	}
 	stdReq, err := promptcompat.NormalizeOpenAIChatRequest(h.Store, req, requestTraceID(r))
 	if err != nil {
+		config.Logger.Error("[chat_handler] normalize error", "error", err)
 		writeOpenAIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	config.Logger.Info("[chat_handler] request normalized", "model", stdReq.ResponseModel, "stream", stdReq.Stream, "prompt_len", len(stdReq.PromptTokenText), "msg_count", len(stdReq.Messages), "has_tools", stdReq.ToolsRaw != nil)
+	const maxPromptChars = 1000000
+	if len(stdReq.PromptTokenText) > maxPromptChars {
+		config.Logger.Warn("[chat_handler] prompt too long, rejecting", "prompt_len", len(stdReq.PromptTokenText), "max", maxPromptChars)
+		writeOpenAIError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("prompt too long (%d chars, max %d). Reduce message count or tool result size.", len(stdReq.PromptTokenText), maxPromptChars))
 		return
 	}
 	stdReq, err = h.applyCurrentInputFile(r.Context(), a, stdReq)
@@ -80,14 +124,54 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, status, message)
 		return
 	}
+
+	config.Logger.Info("[browser_proxy_check] checking",
+		"browser_session_not_nil", h.BrowserSession != nil,
+		"browser_proxy_enabled", h.Store.BrowserProxyEnabled(),
+		"model", stdReq.ResponseModel,
+	)
+
+	if shouldUseBrowserProxy(stdReq.ResponseModel, h.Store.BrowserProxyEnabled()) {
+		session := h.BrowserSession
+		if session == nil {
+			config.Logger.Info("[browser_proxy] session nil, attempting lazy init")
+			cfg := browserproxy.NewConfig(h.Store.BrowserProxy())
+			accounts := h.Store.Accounts()
+			if len(accounts) == 0 {
+				writeOpenAIError(w, http.StatusServiceUnavailable, "no accounts configured")
+				return
+			}
+			session = browserproxy.NewBrowserSession(cfg, accounts[0])
+			if err := session.Start(r.Context()); err != nil {
+				config.Logger.Error("[browser_proxy] lazy init failed", "error", err)
+				writeOpenAIError(w, http.StatusServiceUnavailable, fmt.Sprintf("browser init failed: %v", err))
+				return
+			}
+			h.BrowserSession = session
+			config.Logger.Info("[browser_proxy] lazy init success")
+		}
+
+		config.Logger.Info("[browser_proxy] using browser-only mode (safe mode), skipping Trust.Login")
+		h.handleBrowserProxyChat(w, r, a, stdReq)
+		return
+	}
+
+	config.Logger.Warn("[direct_api] using direct API mode",
+		"model", stdReq.ResponseModel,
+		"warning", "direct API may be detected and blocked by official",
+		"has_tools", stdReq.ToolsRaw != nil,
+	)
+
 	historySession := startChatHistory(h.ChatHistory, r, a, stdReq)
 
 	if !stdReq.Stream {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 			RetryEnabled:     true,
 			CurrentInputFile: h.Store,
+			SessionPool:      h.SessionPool,
 		})
 		sessionID = result.SessionID
+		reusedSession = result.ReusedSession
 		if outErr != nil {
 			if historySession != nil {
 				historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text))
@@ -107,8 +191,10 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile: h.Store,
+		SessionPool:      h.SessionPool,
 	})
 	sessionID = start.SessionID
+	reusedSession = start.ReusedSession
 	if outErr != nil {
 		if historySession != nil {
 			historySession.error(outErr.Status, outErr.Message, outErr.Code, "", "")
@@ -281,4 +367,313 @@ func (h *Handler) handleStream(w http.ResponseWriter, r *http.Request, resp *htt
 			}
 		},
 	})
+}
+
+func (h *Handler) handleBrowserProxyChat(w http.ResponseWriter, r *http.Request, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) {
+	config.Logger.Info("[browser_proxy] handling chat request", "model", stdReq.ResponseModel, "stream", stdReq.Stream)
+
+	session := h.BrowserSession
+	if session == nil {
+		writeOpenAIError(w, http.StatusInternalServerError, "browser proxy not initialized")
+		return
+	}
+
+	config.Logger.Info("[browser_proxy] calling EnsureReady")
+	err := session.EnsureReady(r.Context())
+	if err != nil {
+		config.Logger.Error("[browser_proxy] ensure ready failed", "error", err)
+		writeOpenAIError(w, http.StatusServiceUnavailable, fmt.Sprintf("browser not ready: %v", err))
+		return
+	}
+	config.Logger.Info("[browser_proxy] EnsureReady done")
+
+	cfg := browserproxy.NewConfig(h.Store.BrowserProxy())
+	chatProxy := browserproxy.NewChatProxy(session, cfg)
+
+	messages := make([]browserproxy.Message, 0, len(stdReq.Messages))
+	hasImage := false
+	for _, msgAny := range stdReq.Messages {
+		msg, ok := msgAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		content := ""
+		var imageData, imageMimeType string
+		switch c := msg["content"].(type) {
+		case string:
+			content = c
+		case []any:
+			for _, part := range c {
+				if m, ok := part.(map[string]any); ok {
+					if text, ok := m["text"].(string); ok {
+						content += text
+					}
+					if m["type"] == "image_url" {
+						if imgURL, ok := m["image_url"].(map[string]any); ok {
+							if url, ok := imgURL["url"].(string); ok {
+								data, mime, err := extractBase64Image(url)
+								if err == nil {
+									imageData = data
+									imageMimeType = mime
+									hasImage = true
+									config.Logger.Info("[browser_proxy] extracted image",
+										"mime_type", mime,
+										"data_len", len(data),
+									)
+								} else {
+									config.Logger.Warn("[browser_proxy] failed to extract image", "error", err)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		role, _ := msg["role"].(string)
+		if role == "user" {
+			content = extractUserText(content)
+		}
+		config.Logger.Info("[browser_proxy] extracted message",
+			"role", role,
+			"content_len", len(content),
+			"content_preview", content[:min(50, len(content))],
+			"content_bytes", fmt.Sprintf("%x", []byte(content[:min(20, len(content))])),
+			"has_image", imageData != "",
+		)
+		messages = append(messages, browserproxy.Message{
+			Role:          role,
+			Content:       content,
+			ImageData:     imageData,
+			ImageMimeType: imageMimeType,
+		})
+	}
+
+	cleanModel := stdReq.ResponseModel
+	cleanModel = strings.TrimSuffix(cleanModel, "-browser")
+	cleanModel = strings.TrimSuffix(cleanModel, "-direct")
+
+	modelType, _ := config.GetModelType(cleanModel)
+	isExpertMode := modelType == "expert"
+
+	req := browserproxy.ChatRequest{
+		Messages:   messages,
+		Model:      cleanModel,
+		Stream:     stdReq.Stream,
+		Thinking:   true,
+		ExpertMode: isExpertMode,
+		Search:     true,
+		HasImage:   hasImage,
+	}
+
+	config.Logger.Info("[browser_proxy] chat request built",
+		"original_model", stdReq.ResponseModel,
+		"clean_model", cleanModel,
+		"model_type", modelType,
+		"expert_mode", isExpertMode,
+		"thinking", true,
+		"search", true,
+		"stream", stdReq.Stream,
+	)
+
+	resp, sendErr := chatProxy.SendChat(r.Context(), req)
+	if sendErr != nil {
+		config.Logger.Error("[browser_proxy] send chat failed", "error", sendErr)
+		writeOpenAIError(w, http.StatusInternalServerError, fmt.Sprintf("send message failed: %v", sendErr))
+		return
+	}
+
+	if resp.Error != nil {
+		writeOpenAIError(w, http.StatusInternalServerError, resp.Error.Error())
+		return
+	}
+
+	if !stdReq.Stream {
+		config.Logger.Info("[browser_proxy] waiting for AI response (non-stream)")
+		waitErr := chatProxy.WaitForResponseComplete(r.Context())
+		if waitErr != nil {
+			config.Logger.Warn("[browser_proxy] wait for response warning", "error", waitErr)
+		}
+		config.Logger.Info("[browser_proxy] response wait complete")
+	}
+
+	if stdReq.Stream {
+		bridge := browserproxy.NewStreamBridge(w, resp, stdReq.Thinking)
+		bridgeErr := bridge.BridgeStream(r.Context(), session)
+		if bridgeErr != nil {
+			config.Logger.Error("[browser_proxy] stream bridge error", "error", bridgeErr)
+		}
+	} else {
+		result, collectErr := browserproxy.CollectNonStreamResponse(r.Context(), session, resp, stdReq.Thinking)
+		if collectErr != nil {
+			config.Logger.Error("[browser_proxy] non-stream collect error", "error", collectErr)
+			browserproxy.WriteOpenAIError(w, http.StatusInternalServerError, collectErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	}
+}
+
+func extractBase64Image(url string) (data, mimeType string, err error) {
+	const prefix = "data:"
+	if !strings.HasPrefix(url, prefix) {
+		return "", "", fmt.Errorf("not a data URL")
+	}
+
+	rest := url[len(prefix):]
+	commaIdx := strings.Index(rest, ",")
+	if commaIdx < 0 {
+		return "", "", fmt.Errorf("invalid data URL: no comma")
+	}
+
+	mimePart := rest[:commaIdx]
+	base64Part := rest[commaIdx+1:]
+
+	if semiIdx := strings.Index(mimePart, ";"); semiIdx >= 0 {
+		mimeType = mimePart[:semiIdx]
+	} else {
+		mimeType = mimePart
+	}
+
+	if mimeType == "" {
+		mimeType = "image/png"
+	}
+
+	return base64Part, mimeType, nil
+}
+
+func extractUserText(content string) string {
+	if len(content) < 100 {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	nonEmptyLines := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			nonEmptyLines = append(nonEmptyLines, trimmed)
+		}
+	}
+
+	if len(nonEmptyLines) == 0 {
+		return content
+	}
+	if len(nonEmptyLines) <= 2 {
+		return content
+	}
+
+	lastLine := nonEmptyLines[len(nonEmptyLines)-1]
+	secondLastLine := nonEmptyLines[len(nonEmptyLines)-2]
+
+	isMetadata := func(s string) bool {
+		metadataIndicators := []string{
+			"Sender (untrusted metadata):",
+			"Sender:",
+			"[Metadata]",
+			"[Sat ",
+			"[Sun ",
+			"[Mon ",
+			"[Tue ",
+			"[Wed ",
+			"[Thu ",
+			"[Fri ",
+			"[LobsterAI",
+			"```json",
+			"```",
+			"{",
+			"label",
+			"Current model:",
+			"Current user request",
+			"[Current",
+			"custom_",
+			"/deepseek-",
+		}
+		for _, indicator := range metadataIndicators {
+			if strings.Contains(s, indicator) {
+				return true
+			}
+		}
+		return false
+	}
+
+	cleanText := func(s string) string {
+		s = strings.TrimSpace(s)
+		prefixes := []string{
+			"Current model: custom_",
+			"[Current user request] ",
+			"[Current",
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(s, prefix) {
+				idx := strings.Index(s, "] ")
+				if idx >= 0 {
+					s = strings.TrimSpace(s[idx+2:])
+				}
+			}
+		}
+		return s
+	}
+
+	if isMetadata(secondLastLine) && !isMetadata(lastLine) && len(lastLine) < 200 {
+		cleaned := cleanText(lastLine)
+		config.Logger.Info("[browser_proxy] extracted last line as user text",
+			"original_len", len(content),
+			"cleaned_len", len(cleaned),
+			"total_lines", len(nonEmptyLines),
+		)
+		return cleaned
+	}
+
+	lastFewLines := strings.Join(nonEmptyLines[max(0, len(nonEmptyLines)-3):], " ")
+	if !isMetadata(lastFewLines) && len(lastFewLines) < 300 {
+		cleaned := cleanText(lastFewLines)
+		config.Logger.Info("[browser_proxy] extracted last few lines as user text",
+			"original_len", len(content),
+			"cleaned_len", len(cleaned),
+		)
+		return cleaned
+	}
+
+	for i := len(nonEmptyLines) - 1; i >= 0; i-- {
+		line := nonEmptyLines[i]
+		if !isMetadata(line) && len(line) > 1 && len(line) < 200 {
+			cleaned := cleanText(line)
+			config.Logger.Info("[browser_proxy] extracted from line index",
+				"original_len", len(content),
+				"cleaned_len", len(cleaned),
+				"line_idx", i,
+			)
+			return cleaned
+		}
+	}
+
+	config.Logger.Warn("[browser_proxy] could not extract user text, returning original",
+		"content_len", len(content),
+		"first_80", content[:min(80, len(content))],
+	)
+
+	return content
+}
+
+func shouldUseBrowserProxy(model string, browserProxyEnabled bool) bool {
+	if strings.HasSuffix(model, "-browser") {
+		config.Logger.Info("[mode_detect] browser proxy mode selected",
+			"model", model,
+			"reason", "model name ends with -browser suffix",
+		)
+		return true
+	}
+	if browserProxyEnabled && !strings.Contains(model, "-direct") {
+		config.Logger.Info("[mode_detect] browser proxy mode (default safe mode)",
+			"model", model,
+			"reason", "browser_proxy_enabled=true and no -direct suffix",
+		)
+		return true
+	}
+	config.Logger.Info("[mode_detect] direct API mode selected",
+		"model", model,
+		"reason", "explicit -direct suffix or browser_proxy_disabled",
+	)
+	return false
 }

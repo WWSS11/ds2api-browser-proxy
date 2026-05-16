@@ -68,3 +68,8 @@ CLAUDE.local.md
 data/
 .codex
 .roomodes
+
+# Browser profiles (contain login sessions & cookies)
+browser_profile/
+browser_profile*/
+temp_chrome_profile/

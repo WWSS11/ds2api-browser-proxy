@@ -6,11 +6,12 @@ import (
 )
 
 type ModelInfo struct {
-	ID         string `json:"id"`
-	Object     string `json:"object"`
-	Created    int64  `json:"created"`
-	OwnedBy    string `json:"owned_by"`
-	Permission []any  `json:"permission,omitempty"`
+	ID            string `json:"id"`
+	Object        string `json:"object"`
+	Created       int64  `json:"created"`
+	OwnedBy       string `json:"owned_by"`
+	ContextWindow int64  `json:"context_window,omitempty"`
+	Permission    []any  `json:"permission,omitempty"`
 }
 type OllamaModelInfo struct {
 	Name       string `json:"name"`
@@ -30,11 +31,11 @@ type ModelAliasReader interface {
 const noThinkingModelSuffix = "-nothinking"
 
 var deepSeekBaseModels = []ModelInfo{
-	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-v4-pro", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-v4-flash-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
-	{ID: "deepseek-v4-vision", Object: "model", Created: 1677610602, OwnedBy: "deepseek", Permission: []any{}},
+	{ID: "deepseek-v4-flash", Object: "model", Created: 1677610602, OwnedBy: "deepseek", ContextWindow: 1050000, Permission: []any{}},
+	{ID: "deepseek-v4-pro", Object: "model", Created: 1677610602, OwnedBy: "deepseek", ContextWindow: 1050000, Permission: []any{}},
+	{ID: "deepseek-v4-flash-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", ContextWindow: 1050000, Permission: []any{}},
+	{ID: "deepseek-v4-pro-search", Object: "model", Created: 1677610602, OwnedBy: "deepseek", ContextWindow: 1050000, Permission: []any{}},
+	{ID: "deepseek-v4-vision", Object: "model", Created: 1677610602, OwnedBy: "deepseek", ContextWindow: 1050000, Permission: []any{}},
 }
 
 var OllamaCapabilitiesModels = []OllamaCapabilitiesModelInfo{
@@ -54,32 +55,32 @@ var DeepSeekModels = appendNoThinkingVariants(deepSeekBaseModels)
 var OllamaModels = mapToOllamaModels(DeepSeekModels)
 var claudeBaseModels = []ModelInfo{
 	// Current aliases
-	{ID: "claude-opus-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-sonnet-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-haiku-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
+	{ID: "claude-opus-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-sonnet-4-6", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-haiku-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
 
 	// Claude 4.x snapshots and prior aliases kept for compatibility
-	{ID: "claude-sonnet-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-opus-4-1", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-opus-4-1-20250805", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-opus-4-0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-opus-4-20250514", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-sonnet-4-5-20250929", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-sonnet-4-0", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-sonnet-4-20250514", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-haiku-4-5-20251001", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
+	{ID: "claude-sonnet-4-5", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-opus-4-1", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-opus-4-1-20250805", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-opus-4-0", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-opus-4-20250514", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-sonnet-4-5-20250929", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-sonnet-4-0", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-sonnet-4-20250514", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-haiku-4-5-20251001", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
 
 	// Claude 3.x (legacy/deprecated snapshots and aliases)
-	{ID: "claude-3-7-sonnet-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-7-sonnet-20250219", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-5-sonnet-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-5-sonnet-20240620", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-5-sonnet-20241022", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-opus-20240229", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-sonnet-20240229", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-5-haiku-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-5-haiku-20241022", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
-	{ID: "claude-3-haiku-20240307", Object: "model", Created: 1715635200, OwnedBy: "anthropic"},
+	{ID: "claude-3-7-sonnet-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-7-sonnet-20250219", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-5-sonnet-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-5-sonnet-20240620", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-5-sonnet-20241022", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-opus-20240229", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-sonnet-20240229", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-5-haiku-latest", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-5-haiku-20241022", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
+	{ID: "claude-3-haiku-20240307", Object: "model", Created: 1715635200, OwnedBy: "anthropic", ContextWindow: 1050000},
 }
 
 var ClaudeModels = appendNoThinkingVariants(claudeBaseModels)
@@ -224,6 +225,19 @@ func DefaultModelAliases() map[string]string {
 
 		"llama-3.1-70b-instruct": "deepseek-v4-flash",
 		"qwen-max":               "deepseek-v4-flash",
+
+		// DeepSeek native model name aliases
+		"deepseek-chat":             "deepseek-v4-flash",
+		"deepseek-reasoner":         "deepseek-v4-pro",
+		"deepseek-coder":            "deepseek-v4-pro",
+		"deepseek-chat-v4":          "deepseek-v4-flash",
+		"deepseek-reasoner-v4":      "deepseek-v4-pro",
+		"deepseek-v3":               "deepseek-v4-flash",
+		"deepseek-v3-0324":          "deepseek-v4-flash",
+		"deepseek-r1":               "deepseek-v4-pro",
+		"deepseek-r1-0528":          "deepseek-v4-pro",
+		"deepseek-r1-distill-qwen":  "deepseek-v4-pro",
+		"deepseek-r1-distill-llama": "deepseek-v4-pro",
 	}
 }
 

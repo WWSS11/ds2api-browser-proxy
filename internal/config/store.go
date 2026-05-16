@@ -125,8 +125,19 @@ func loadConfigFromFile(path string) (Config, error) {
 	}
 	var cfg Config
 	if err := json.Unmarshal(content, &cfg); err != nil {
-		return Config{}, err
+		return Config{}, err	}
+
+	var bpTest struct {
+		BrowserProxy struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"browser_proxy"`
 	}
+	if bpErr := json.Unmarshal(content, &bpTest); bpErr == nil {
+		if bpTest.BrowserProxy.Enabled != nil {
+			Logger.Info("[browser_proxy] config loaded", "enabled", *bpTest.BrowserProxy.Enabled)
+		}
+	}
+
 	cfg.NormalizeCredentials()
 	cfg.DropInvalidAccounts()
 	if strings.Contains(string(content), `"test_status"`) && !IsVercel() {
