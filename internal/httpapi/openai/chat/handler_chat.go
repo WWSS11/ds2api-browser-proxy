@@ -168,10 +168,8 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		result, outErr := completionruntime.ExecuteNonStreamWithRetry(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 			RetryEnabled:     true,
 			CurrentInputFile: h.Store,
-			SessionPool:      h.SessionPool,
 		})
 		sessionID = result.SessionID
-		reusedSession = result.ReusedSession
 		if outErr != nil {
 			if historySession != nil {
 				historySession.error(outErr.Status, outErr.Message, outErr.Code, historyThinkingForArchive(result.Turn.RawThinking, result.Turn.DetectionThinking, result.Turn.Thinking), historyTextForArchive(result.Turn.RawText, result.Turn.Text))
@@ -191,10 +189,8 @@ func (h *Handler) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	start, outErr := completionruntime.StartCompletion(r.Context(), h.DS, a, stdReq, completionruntime.Options{
 		CurrentInputFile: h.Store,
-		SessionPool:      h.SessionPool,
 	})
 	sessionID = start.SessionID
-	reusedSession = start.ReusedSession
 	if outErr != nil {
 		if historySession != nil {
 			historySession.error(outErr.Status, outErr.Message, outErr.Code, "", "")

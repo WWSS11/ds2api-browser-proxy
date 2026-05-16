@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"ds2api/internal/config"
 	"ds2api/internal/promptcompat"
 )
 
@@ -25,13 +26,18 @@ func (m mockOpenAIConfig) ToolcallMode() string                { return m.toolMo
 func (m mockOpenAIConfig) ToolcallEarlyEmitConfidence() string { return m.earlyEmit }
 func (m mockOpenAIConfig) ResponsesStoreTTLSeconds() int       { return m.responsesTTL }
 func (m mockOpenAIConfig) EmbeddingsProvider() string          { return m.embedProv }
+func (m mockOpenAIConfig) Accounts() []config.Account          { return nil }
 func (m mockOpenAIConfig) AutoDeleteMode() string {
 	if m.autoDeleteMode == "" {
 		return "none"
 	}
 	return m.autoDeleteMode
 }
-func (m mockOpenAIConfig) AutoDeleteSessions() bool      { return false }
+func (m mockOpenAIConfig) AutoDeleteSessions() bool  { return false }
+func (m mockOpenAIConfig) BrowserProxyEnabled() bool { return false }
+func (m mockOpenAIConfig) BrowserProxy() config.BrowserProxyConfig {
+	return config.BrowserProxyConfig{}
+}
 func (m mockOpenAIConfig) CurrentInputFileEnabled() bool { return m.currentInputEnabled }
 func (m mockOpenAIConfig) CurrentInputFileMinChars() int {
 	return m.currentInputMin

@@ -39,8 +39,11 @@ type ConfigReader interface {
 	ToolcallEarlyEmitConfidence() string
 	ResponsesStoreTTLSeconds() int
 	EmbeddingsProvider() string
+	Accounts() []config.Account
 	AutoDeleteMode() string
 	AutoDeleteSessions() bool
+	BrowserProxyEnabled() bool
+	BrowserProxy() config.BrowserProxyConfig
 	CurrentInputFileEnabled() bool
 	CurrentInputFileMinChars() int
 	ThinkingInjectionEnabled() bool

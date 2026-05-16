@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ds2api/internal/auth"
+	"ds2api/internal/browserproxy"
 	"ds2api/internal/chathistory"
 	"ds2api/internal/httpapi/openai/files"
 	"ds2api/internal/httpapi/openai/history"
@@ -22,10 +23,11 @@ const openAIGeneralMaxSize = shared.GeneralMaxSize
 var writeJSON = shared.WriteJSON
 
 type Handler struct {
-	Store       shared.ConfigReader
-	Auth        shared.AuthResolver
-	DS          shared.DeepSeekCaller
-	ChatHistory *chathistory.Store
+	Store          shared.ConfigReader
+	Auth           shared.AuthResolver
+	DS             shared.DeepSeekCaller
+	ChatHistory    *chathistory.Store
+	BrowserSession *browserproxy.BrowserSession
 
 	leaseMu      sync.Mutex
 	streamLeases map[string]streamLease

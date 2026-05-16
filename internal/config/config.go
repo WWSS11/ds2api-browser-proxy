@@ -18,6 +18,8 @@ type Config struct {
 	Responses         ResponsesConfig         `json:"responses,omitempty"`
 	Embeddings        EmbeddingsConfig        `json:"embeddings,omitempty"`
 	AutoDelete        AutoDeleteConfig        `json:"auto_delete"`
+	SessionReuse      SessionReuseConfig      `json:"session_reuse,omitempty"`
+	BrowserProxy      BrowserProxyConfig      `json:"browser_proxy,omitempty"`
 	CurrentInputFile  CurrentInputFileConfig  `json:"current_input_file,omitempty"`
 	ThinkingInjection ThinkingInjectionConfig `json:"thinking_injection,omitempty"`
 	Vercel            VercelConfig            `json:"vercel,omitempty"`
@@ -166,6 +168,21 @@ type EmbeddingsConfig struct {
 type AutoDeleteConfig struct {
 	Mode     string `json:"mode,omitempty"`
 	Sessions bool   `json:"sessions,omitempty"`
+}
+
+type SessionReuseConfig struct {
+	Enabled       *bool `json:"enabled,omitempty"`
+	TTLSeconds    int   `json:"ttl_seconds,omitempty"`
+	MinIntervalMs int   `json:"min_interval_ms,omitempty"`
+	MaxMessages   int   `json:"max_messages,omitempty"`
+}
+
+type BrowserProxyConfig struct {
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Headless       *bool  `json:"headless,omitempty"`
+	UserDataDir    string `json:"user_data_dir,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	PollIntervalMs int    `json:"poll_interval_ms,omitempty"`
 }
 
 type CurrentInputFileConfig struct {

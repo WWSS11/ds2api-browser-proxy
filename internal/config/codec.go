@@ -42,6 +42,12 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		m["embeddings"] = c.Embeddings
 	}
 	m["auto_delete"] = c.AutoDelete
+	if c.SessionReuse.Enabled != nil || c.SessionReuse.TTLSeconds != 0 || c.SessionReuse.MinIntervalMs != 0 || c.SessionReuse.MaxMessages != 0 {
+		m["session_reuse"] = c.SessionReuse
+	}
+	if c.BrowserProxy.Enabled != nil || c.BrowserProxy.Headless != nil || strings.TrimSpace(c.BrowserProxy.UserDataDir) != "" || c.BrowserProxy.TimeoutSeconds != 0 || c.BrowserProxy.PollIntervalMs != 0 {
+		m["browser_proxy"] = c.BrowserProxy
+	}
 	if c.CurrentInputFile.Enabled != nil || c.CurrentInputFile.MinChars != 0 {
 		m["current_input_file"] = c.CurrentInputFile
 	}
@@ -118,6 +124,14 @@ func (c *Config) UnmarshalJSON(b []byte) error {
 			if err := json.Unmarshal(v, &c.AutoDelete); err != nil {
 				return fmt.Errorf("invalid field %q: %w", k, err)
 			}
+		case "session_reuse":
+			if err := json.Unmarshal(v, &c.SessionReuse); err != nil {
+				return fmt.Errorf("invalid field %q: %w", k, err)
+			}
+		case "browser_proxy":
+			if err := json.Unmarshal(v, &c.BrowserProxy); err != nil {
+				return fmt.Errorf("invalid field %q: %w", k, err)
+			}
 		case "history_split":
 			// Removed legacy split field is ignored instead of persisted.
 		case "current_input_file":
@@ -163,6 +177,19 @@ func (c Config) Clone() Config {
 		Responses:    c.Responses,
 		Embeddings:   c.Embeddings,
 		AutoDelete:   c.AutoDelete,
+		SessionReuse: SessionReuseConfig{
+			Enabled:       cloneBoolPtr(c.SessionReuse.Enabled),
+			TTLSeconds:    c.SessionReuse.TTLSeconds,
+			MinIntervalMs: c.SessionReuse.MinIntervalMs,
+			MaxMessages:   c.SessionReuse.MaxMessages,
+		},
+		BrowserProxy: BrowserProxyConfig{
+			Enabled:        cloneBoolPtr(c.BrowserProxy.Enabled),
+			Headless:       cloneBoolPtr(c.BrowserProxy.Headless),
+			UserDataDir:    c.BrowserProxy.UserDataDir,
+			TimeoutSeconds: c.BrowserProxy.TimeoutSeconds,
+			PollIntervalMs: c.BrowserProxy.PollIntervalMs,
+		},
 		CurrentInputFile: CurrentInputFileConfig{
 			Enabled:  cloneBoolPtr(c.CurrentInputFile.Enabled),
 			MinChars: c.CurrentInputFile.MinChars,
