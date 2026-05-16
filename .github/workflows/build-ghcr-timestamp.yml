@@ -1,4 +1,5 @@
 name: Build Docker Image (Timestamp + latest)
+run-name: Build Docker Image (Timestamp + latest)
 
 on:
   push:
@@ -54,10 +55,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Keep only last 2 versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          min-versions-to-keep: 2
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Keep only last 2 versions
+      #   uses: actions/delete-package-versions@v5
+      #   with:
+      #     package-name: ${{ github.event.repository.name }}
+      #     package-type: container
+      #     min-versions-to-keep: 2
+      #     token: ${{ secrets.GITHUB_TOKEN }}
